@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: You <you@example.com>
+Date: Fri, 31 Oct 2025 00:00:00 +0000
+Subject: [PATCH] Debug: tolerate missing /proc/config.gz in isVmapStack()
+
+When /proc/config.gz is unavailable on the host, LoadKernelConfigs()
+fails and the old CHECK() would abort system_server. Treat this as
+"CONFIG_VMAP_STACK unset" instead of crashing.
+
+---
+ frameworks/base/core/jni/android_os_Debug.cpp | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/frameworks/base/core/jni/android_os_Debug.cpp b/frameworks/base/core/jni/android_os_Debug.cpp
+index 0000000000..0000000000 100644
+--- a/frameworks/base/core/jni/android_os_Debug.cpp
++++ b/frameworks/base/core/jni/android_os_Debug.cpp
+@@ -XXX,7 +XXX,14 @@ static jboolean android_os_Debug_isVmapStack(JNIEnv *env, jobject clazz)
+     if (cfg_state == CONFIG_UNKNOWN) {
+         std::map<std::string, std::string> configs;
+         const status_t result = android::kernelconfigs::LoadKernelConfigs(&configs);
+-        CHECK(result == OK) << "Kernel configs could not be fetched. b/151092221";
++        if (result != OK) {
++            // Host kernel didn't expose /proc/config.gz (CONFIG_IKCONFIG{,_PROC} missing or module not loaded).
++            // Do not crash system_server; assume CONFIG_VMAP_STACK is unset.
++            ALOGW("Kernel configs not available; assuming CONFIG_VMAP_STACK is unset");
++            cfg_state = CONFIG_UNSET;
++            return JNI_FALSE;
++        }
++
+         std::map<std::string, std::string>::const_iterator it = configs.find("CONFIG_VMAP_STACK");
+         cfg_state = (it != configs.end() && it->second == "y") ? CONFIG_SET : CONFIG_UNSET;
+     }
+-- 
+2.43.0
